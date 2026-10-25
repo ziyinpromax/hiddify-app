@@ -5,6 +5,8 @@ import 'package:hiddify/core/localization/translations.dart';
 import 'package:hiddify/core/router/dialog/dialog_notifier.dart';
 import 'package:hiddify/core/router/go_router/helper/active_breakpoint_notifier.dart';
 import 'package:hiddify/features/profile/notifier/active_profile_notifier.dart';
+import 'package:hiddify/core/flash_pool.dart';
+import 'package:hiddify/core/preferences/general_preferences.dart';
 import 'package:hiddify/features/settings/notifier/config_option/config_option_notifier.dart';
 import 'package:hiddify/features/settings/notifier/reset_tunnel/reset_tunnel_notifier.dart';
 import 'package:hiddify/utils/utils.dart';
@@ -142,6 +144,20 @@ class SettingsPage extends HookConsumerWidget {
       body: ListView(
         children: [
           // TipCard(message: t.settings.experimentalMsg),
+          // Flâsh fork only (v0.2): pool URL + publish password for the
+          // NEW Flâsh Hiddify pool. Opens a dialog; nothing is published
+          // from here, and the password is never logged or exported.
+          ListTile(
+            leading: const Icon(Icons.public_rounded),
+            title: const Text('🌍 Flâsh Pool'),
+            subtitle: Text(
+              ref.watch(Preferences.flashPoolUrl).isEmpty
+                  ? 'Pool URL မထည့်ရသေးပါ — နှိပ်ပြီး ထည့်ပါ'
+                  : ref.watch(Preferences.flashPoolUrl),
+            ),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => showFlashPoolSettingsDialog(context, ref),
+          ),
           SettingsSection(
             title: t.pages.settings.general.title,
             icon: Icons.layers_rounded,
@@ -225,5 +241,52 @@ class SettingsSection extends HookConsumerWidget {
       trailing: const Icon(Icons.chevron_right_rounded),
       onTap: () => context.go(namedLocation),
     );
+  }
+}
+
+/// Flâsh fork only (v0.2): edit the pool URL + publish password.
+/// The password field is obscured; both values are stored in the app's
+/// preferences (not secure storage) and are never logged.
+Future<void> showFlashPoolSettingsDialog(BuildContext context, WidgetRef ref) async {
+  final urlController = TextEditingController(text: ref.read(Preferences.flashPoolUrl));
+  final passwordController = TextEditingController(text: ref.read(Preferences.flashPoolPassword));
+  final saved = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('🌍 Flâsh Pool'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: urlController,
+            decoration: const InputDecoration(
+              labelText: 'Pool URL',
+              hintText: 'https://flash-hiddify-pool.<subdomain>.workers.dev',
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: passwordController,
+            obscureText: true,
+            decoration: const InputDecoration(labelText: 'Publish password'),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Published links become public — anyone with the pool URL can '
+            'fetch and use them. Never publish a private subscription URL '
+            'unless you intend it to become public.',
+            style: TextStyle(fontSize: 12),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
+        TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Save')),
+      ],
+    ),
+  );
+  if (saved == true) {
+    await ref.read(Preferences.flashPoolUrl.notifier).update(normalizePoolUrl(urlController.text));
+    await ref.read(Preferences.flashPoolPassword.notifier).update(passwordController.text.trim());
   }
 }

@@ -56,7 +56,7 @@ jobs:
         run: make android-prepare
 
       - name: Flâsh unit test
-        run: flutter test test/flash_public_filter_test.dart
+        run: flutter test test/flash_public_filter_test.dart test/flash_pool_test.dart
 
       - name: Build debug APKs (split per ABI)
         run: flutter build apk --debug --split-per-abi

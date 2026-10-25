@@ -4,7 +4,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hiddify/core/flash_pool.dart';
 import 'package:hiddify/core/flash_public.dart';
+import 'package:hiddify/features/profile/data/profile_data_providers.dart';
 import 'package:hiddify/core/localization/translations.dart';
 import 'package:hiddify/core/model/constants.dart';
 import 'package:hiddify/core/model/failures.dart';
@@ -32,6 +34,7 @@ class ProfileTile extends HookConsumerWidget {
     this.isMain = false,
     this.margin = EdgeInsets.zero,
     this.isPublic = false,
+    this.isPublished = false,
   });
 
   final ProfileEntity profile;
@@ -43,6 +46,10 @@ class ProfileTile extends HookConsumerWidget {
   /// Flâsh fork only: true when the user marked this profile Public.
   /// Default false (Private). Other call sites keep the default.
   final bool isPublic;
+
+  /// Flâsh fork only (v0.2): true when this profile was successfully
+  /// published to the Flâsh Hiddify pool. Default false.
+  final bool isPublished;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -110,7 +117,13 @@ class ProfileTile extends HookConsumerWidget {
                   width: 48,
                   child: Semantics(
                     sortKey: const OrdinalSortKey(1),
-                    child: ProfileActionButton(profile, !isMain, squareBottom: showLinks, isPublic: isPublic),
+                    child: ProfileActionButton(
+                      profile,
+                      !isMain,
+                      squareBottom: showLinks,
+                      isPublic: isPublic,
+                      isPublished: isPublished,
+                    ),
                   ),
                 ),
                 if (profile.active) VerticalDivider(width: 1, color: theme.colorScheme.outline) else const Gap(1),
@@ -204,9 +217,9 @@ class ProfileTile extends HookConsumerWidget {
       final row = Row(
         children: [
           Expanded(child: nameText),
-          const Padding(
-            padding: EdgeInsetsDirectional.only(start: 8),
-            child: Text('🌍', semanticsLabel: 'Public'),
+          Padding(
+            padding: const EdgeInsetsDirectional.only(start: 8),
+            child: Text(isPublished ? '🌍✓' : '🌍', semanticsLabel: isPublished ? 'Public, published' : 'Public'),
           ),
           if (trailing != null) Padding(padding: const EdgeInsetsDirectional.only(start: 8), child: trailing),
         ],
@@ -237,6 +250,7 @@ class ProfileActionButton extends HookConsumerWidget {
     super.key,
     this.squareBottom = false,
     this.isPublic = false,
+    this.isPublished = false,
   });
 
   final ProfileEntity profile;
@@ -244,6 +258,9 @@ class ProfileActionButton extends HookConsumerWidget {
 
   /// Flâsh fork only, forwarded to the actions menu.
   final bool isPublic;
+
+  /// Flâsh fork only (v0.2), forwarded to the actions menu.
+  final bool isPublished;
 
   /// Zeroes this button's bottom corner, matching the card when a link chip
   /// is attached flush below it.
@@ -347,6 +364,7 @@ class ProfileActionButton extends HookConsumerWidget {
       },
       key: const ValueKey('menu'),
       isPublic: isPublic,
+      isPublished: isPublished,
     );
   }
 }
@@ -380,7 +398,14 @@ class _UpdatingIndicatorState extends State<_UpdatingIndicator> with SingleTicke
 }
 
 class ProfileActionsMenu extends HookConsumerWidget {
-  const ProfileActionsMenu(this.profile, this.builder, {super.key, this.child, this.isPublic = false});
+  const ProfileActionsMenu(
+    this.profile,
+    this.builder, {
+    super.key,
+    this.child,
+    this.isPublic = false,
+    this.isPublished = false,
+  });
 
   final ProfileEntity profile;
   final AdaptiveMenuBuilder builder;
@@ -388,6 +413,9 @@ class ProfileActionsMenu extends HookConsumerWidget {
 
   /// Flâsh fork only: whether this profile is currently Public.
   final bool isPublic;
+
+  /// Flâsh fork only (v0.2): whether this profile was published to the pool.
+  final bool isPublished;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -430,6 +458,95 @@ class ProfileActionsMenu extends HookConsumerWidget {
               if (context.mounted) {
                 ref.read(inAppNotificationControllerProvider).showSuccessToast(t.common.msg.export.clipboard.success);
               }
+            }
+          },
+        ),
+      // Flâsh fork only (v0.2): publish to the NEW Flâsh Hiddify pool.
+      // Visible only for Public profiles. Explicit user tap only, after
+      // a confirmation warning that published links become public.
+      // Remote profiles publish their subscription URL as ONE pool entry
+      // labelled "subscription" (the app model exposes no node list);
+      // local profiles publish the individual links extracted from their
+      // raw config. Nothing is invented: if no publishable link is found,
+      // publishing is refused with a clear message. Server errors are
+      // shown verbatim; success is never faked.
+      if (isPublic)
+        AdaptiveMenuItem(
+          title: isPublished ? '🌍 Publish to Pool ✓' : '🌍 Publish to Pool',
+          leadingIcon: const Icon(Icons.public_rounded),
+          onTap: () async {
+            final notifications = ref.read(inAppNotificationControllerProvider);
+            final poolUrl = ref.read(Preferences.flashPoolUrl);
+            if (poolUrl.isEmpty) {
+              notifications.showErrorToast('Pool URL မထည့်ရသေးပါ — Settings → 🌍 Flâsh Pool မှာ ထည့်ပါ');
+              return;
+            }
+            final password = ref.read(Preferences.flashPoolPassword);
+            if (password.isEmpty) {
+              notifications.showErrorToast('Publish password မထည့်ရသေးပါ — Settings → 🌍 Flâsh Pool မှာ ထည့်ပါ');
+              return;
+            }
+            final confirmed = await ref.read(dialogNotifierProvider.notifier).showConfirmation(
+              title: '🌍 Publish to Pool',
+              message:
+                  'Published links become public — anyone with the pool URL '
+                  'can fetch and use them. Publish "${profile.name}" to the '
+                  'Flâsh Hiddify pool?',
+            );
+            if (!confirmed) return;
+            // Build the publish entries for this profile.
+            final entries = <({String name, String key})>[];
+            switch (profile) {
+              case RemoteProfileEntity(:final url):
+                entries.add((name: profile.name, key: url));
+              case LocalProfileEntity():
+                try {
+                  final repo = ref.read(profileRepositoryProvider).requireValue;
+                  final raw = await repo.getRawConfig(profile.id).run();
+                  raw.match(
+                    (failure) => notifications.showErrorToast(t.presentShortError(failure)),
+                    (config) {
+                      for (final link in extractPublishableLinks(config)) {
+                        entries.add((name: profile.name, key: link));
+                      }
+                    },
+                  );
+                } catch (e) {
+                  notifications.showErrorToast(e.toString());
+                  return;
+                }
+                if (entries.isEmpty) {
+                  notifications.showErrorToast('No publishable link in this profile — nothing published');
+                  return;
+                }
+            }
+            final client = FlashPoolClient();
+            var published = 0;
+            var firstError = '';
+            for (final entry in entries) {
+              final result = await client.publishEntry(
+                poolUrl: poolUrl,
+                password: password,
+                name: entry.name,
+                key: entry.key,
+              );
+              if (result.ok) {
+                published++;
+              } else if (firstError.isEmpty) {
+                firstError = result.error;
+              }
+            }
+            if (published > 0) {
+              final current = ref.read(Preferences.flashPublishedProfileIds);
+              if (!current.contains(profile.id)) {
+                await ref
+                    .read(Preferences.flashPublishedProfileIds.notifier)
+                    .update([...current, profile.id]);
+              }
+              notifications.showSuccessToast('🌍 Published $published to pool'
+                  '${firstError.isEmpty ? '' : ' (some failed: $firstError)'}');
+            } else {
+              notifications.showErrorToast('Publish မရပါ: $firstError');
             }
           },
         ),

@@ -61,6 +61,32 @@ abstract class Preferences {
     <String>[],
   );
 
+  // Flâsh fork only (v0.2): the NEW Flâsh Hiddify pool. The URL is empty
+  // until the user enters the deployed Worker URL in Settings. The
+  // publish password is stored here like other app preferences (NOT
+  // secure storage); it is never logged and never exported with a
+  // profile. flashPublishedProfileIds marks profiles this app has
+  // successfully published; flashPoolImportedKeys de-dupes pool fetches.
+  static final flashPoolUrl = PreferencesNotifier.create<String, String>(
+    "flash_pool_url",
+    "",
+  );
+
+  static final flashPoolPassword = PreferencesNotifier.create<String, String>(
+    "flash_pool_password",
+    "",
+  );
+
+  static final flashPublishedProfileIds = PreferencesNotifier.create<List<String>, List<String>>(
+    "flash_published_profile_ids",
+    <String>[],
+  );
+
+  static final flashPoolImportedKeys = PreferencesNotifier.create<List<String>, List<String>>(
+    "flash_pool_imported_keys",
+    <String>[],
+  );
+
   static final windowMaximized = PreferencesNotifier.create<bool, bool>("window_maximized", false);
 
   static final windowPosition = PreferencesNotifier.create<Offset?, String?>(

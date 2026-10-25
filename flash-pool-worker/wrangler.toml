@@ -1,0 +1,11 @@
+# Flâsh Hiddify pool — deploy ONLY on a DEDICATED Hiddify Cloudflare account
+# (one-account-per-app rule). Do NOT reuse the Flâsh VPN account/KV/password.
+name = "flash-hiddify-pool"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+[[kv_namespaces]]
+binding = "POOL_KV"
+# TODO at deploy time: replace with the real KV namespace id created on the
+# dedicated Hiddify account (wrangler kv namespace create POOL_KV).
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
