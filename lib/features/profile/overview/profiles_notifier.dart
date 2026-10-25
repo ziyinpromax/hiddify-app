@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 import 'package:fpdart/fpdart.dart';
+import 'package:hiddify/core/flash_public.dart';
 import 'package:hiddify/core/haptic/haptic_service.dart';
 import 'package:hiddify/core/localization/translations.dart';
 import 'package:hiddify/core/notification/in_app_notification_controller.dart';
@@ -82,6 +83,13 @@ class ProfilesNotifier extends _$ProfilesNotifier with AppLogger {
           },
           (_) async {
             loggy.info('successfully deleted profile, was active? [${profile.active}]');
+            // Flâsh fork only: drop the deleted id from the Public list.
+            final currentPublic = ref.read(Preferences.flashPublicProfileIds);
+            if (currentPublic.contains(profile.id)) {
+              await ref
+                  .read(Preferences.flashPublicProfileIds.notifier)
+                  .update(flashRemovePublicId(currentPublic, profile.id));
+            }
             final t = ref.read(translationsProvider).requireValue;
             ref.read(inAppNotificationControllerProvider).showSuccessToast(t.pages.profiles.msg.delete.success);
 

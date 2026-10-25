@@ -1,0 +1,72 @@
+# Flâsh fork only: minimal Android debug build via GitHub Actions.
+#
+# Why this workflow exists: local sandbox builds are blocked because the
+# Gradle daemon's loopback IPC never surfaces an approval card there.
+# GitHub's runner has no such guard, so the same build runs in the cloud.
+#
+# This workflow deliberately does NOT use upstream release.yml: that flow
+# needs signing secrets (ANDROID_SIGNING_KEY etc.) which this fork does
+# not have. A debug APK needs no signing secret and installs on a phone,
+# but its debug key is generated fresh on each runner, so upgrading from
+# one CI debug APK to the next may require uninstalling first. That is
+# an honest limit of the debug build, not a release build.
+name: Flâsh build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  android-debug:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.38.5'
+          channel: 'stable'
+          cache: true
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: 17
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android platform, build-tools and NDK
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
+
+      - name: Prepare (upstream android-prepare)
+        run: make android-prepare
+
+      - name: Flâsh unit test
+        run: flutter test test/flash_public_filter_test.dart
+
+      - name: Build debug APKs (split per ABI)
+        run: flutter build apk --debug --split-per-abi
+
+      - name: List outputs
+        run: ls -lh build/app/outputs/flutter-apk/
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: flash-hiddify-debug-apks
+          path: build/app/outputs/flutter-apk/*.apk
+          if-no-files-found: error

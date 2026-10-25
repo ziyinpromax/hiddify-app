@@ -52,6 +52,15 @@ abstract class Preferences {
     <String>[],
   );
 
+  // Flâsh fork only: profile ids the user explicitly marked as Public.
+  // Absent id = Private (the default). This list is never auto-populated,
+  // never published to any server, and only changes on an explicit
+  // user tap (Mark as Public / Mark as Private / profile delete).
+  static final flashPublicProfileIds = PreferencesNotifier.create<List<String>, List<String>>(
+    "flash_public_profile_ids",
+    <String>[],
+  );
+
   static final windowMaximized = PreferencesNotifier.create<bool, bool>("window_maximized", false);
 
   static final windowPosition = PreferencesNotifier.create<Offset?, String?>(

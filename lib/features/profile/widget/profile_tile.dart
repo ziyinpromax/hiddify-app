@@ -4,11 +4,13 @@ import 'package:flutter/services.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hiddify/core/flash_public.dart';
 import 'package:hiddify/core/localization/translations.dart';
 import 'package:hiddify/core/model/constants.dart';
 import 'package:hiddify/core/model/failures.dart';
 import 'package:hiddify/core/model/trusted_links.dart';
 import 'package:hiddify/core/notification/in_app_notification_controller.dart';
+import 'package:hiddify/core/preferences/general_preferences.dart';
 import 'package:hiddify/core/router/bottom_sheets/bottom_sheets_notifier.dart';
 import 'package:hiddify/core/router/dialog/dialog_notifier.dart';
 import 'package:hiddify/core/router/go_router/helper/active_breakpoint_notifier.dart';
@@ -20,16 +22,27 @@ import 'package:hiddify/features/profile/overview/profiles_notifier.dart';
 import 'package:hiddify/gen/fonts.gen.dart';
 import 'package:hiddify/utils/utils.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:simple_icons/simple_icons.dart';
 
 class ProfileTile extends HookConsumerWidget {
-  const ProfileTile({super.key, required this.profile, this.isMain = false, this.margin = EdgeInsets.zero});
+  const ProfileTile({
+    super.key,
+    required this.profile,
+    this.isMain = false,
+    this.margin = EdgeInsets.zero,
+    this.isPublic = false,
+  });
 
   final ProfileEntity profile;
 
   /// home screen active profile card
   final bool isMain;
   final EdgeInsets margin;
+
+  /// Flâsh fork only: true when the user marked this profile Public.
+  /// Default false (Private). Other call sites keep the default.
+  final bool isPublic;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -97,7 +110,7 @@ class ProfileTile extends HookConsumerWidget {
                   width: 48,
                   child: Semantics(
                     sortKey: const OrdinalSortKey(1),
-                    child: ProfileActionButton(profile, !isMain, squareBottom: showLinks),
+                    child: ProfileActionButton(profile, !isMain, squareBottom: showLinks, isPublic: isPublic),
                   ),
                 ),
                 if (profile.active) VerticalDivider(width: 1, color: theme.colorScheme.outline) else const Gap(1),
@@ -186,6 +199,22 @@ class ProfileTile extends HookConsumerWidget {
         ? Icon(Icons.push_pin, size: 16, color: theme.colorScheme.onSurfaceVariant)
         : null;
 
+    // Flâsh fork only: a 🌍 chip on Public profiles, nothing extra on Private.
+    if (isPublic) {
+      final row = Row(
+        children: [
+          Expanded(child: nameText),
+          const Padding(
+            padding: EdgeInsetsDirectional.only(start: 8),
+            child: Text('🌍', semanticsLabel: 'Public'),
+          ),
+          if (trailing != null) Padding(padding: const EdgeInsetsDirectional.only(start: 8), child: trailing),
+        ],
+      );
+      if (!isMain) return row;
+      return Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: row);
+    }
+
     if (trailing == null) return nameText;
 
     final row = Row(
@@ -202,10 +231,19 @@ class ProfileTile extends HookConsumerWidget {
 }
 
 class ProfileActionButton extends HookConsumerWidget {
-  const ProfileActionButton(this.profile, this.showAllActions, {super.key, this.squareBottom = false});
+  const ProfileActionButton(
+    this.profile,
+    this.showAllActions, {
+    super.key,
+    this.squareBottom = false,
+    this.isPublic = false,
+  });
 
   final ProfileEntity profile;
   final bool showAllActions;
+
+  /// Flâsh fork only, forwarded to the actions menu.
+  final bool isPublic;
 
   /// Zeroes this button's bottom corner, matching the card when a link chip
   /// is attached flush below it.
@@ -292,19 +330,24 @@ class ProfileActionButton extends HookConsumerWidget {
         );
       }
     }
-    return ProfileActionsMenu(profile, (context, toggleVisibility, _) {
-      return Semantics(
-        button: true,
-        child: Tooltip(
-          message: MaterialLocalizations.of(context).showMenuTooltip,
-          child: InkWell(
-            borderRadius: ProfileTileConst.startBorderRadius(Directionality.of(context), squareBottom: squareBottom),
-            onTap: toggleVisibility,
-            child: Icon(AdaptiveIcon(context).more),
+    return ProfileActionsMenu(
+      profile,
+      (context, toggleVisibility, _) {
+        return Semantics(
+          button: true,
+          child: Tooltip(
+            message: MaterialLocalizations.of(context).showMenuTooltip,
+            child: InkWell(
+              borderRadius: ProfileTileConst.startBorderRadius(Directionality.of(context), squareBottom: squareBottom),
+              onTap: toggleVisibility,
+              child: Icon(AdaptiveIcon(context).more),
+            ),
           ),
-        ),
-      );
-    }, key: const ValueKey('menu'));
+        );
+      },
+      key: const ValueKey('menu'),
+      isPublic: isPublic,
+    );
   }
 }
 
@@ -337,11 +380,14 @@ class _UpdatingIndicatorState extends State<_UpdatingIndicator> with SingleTicke
 }
 
 class ProfileActionsMenu extends HookConsumerWidget {
-  const ProfileActionsMenu(this.profile, this.builder, {super.key, this.child});
+  const ProfileActionsMenu(this.profile, this.builder, {super.key, this.child, this.isPublic = false});
 
   final ProfileEntity profile;
   final AdaptiveMenuBuilder builder;
   final Widget? child;
+
+  /// Flâsh fork only: whether this profile is currently Public.
+  final bool isPublic;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -353,6 +399,40 @@ class ProfileActionsMenu extends HookConsumerWidget {
         leadingIcon: Icon(profile.pinned ? Icons.push_pin : Icons.push_pin_outlined),
         onTap: () => ref.read(profilesNotifierProvider.notifier).togglePin(profile),
       ),
+      // Flâsh fork only: Private/Public toggle. Explicit user tap only;
+      // nothing here publishes to any server, and Private is the default.
+      AdaptiveMenuItem(
+        title: isPublic ? '🔒 Mark as Private' : '🌍 Mark as Public',
+        leadingIcon: Icon(isPublic ? Icons.lock_outline_rounded : Icons.public_rounded),
+        onTap: () async {
+          final current = ref.read(Preferences.flashPublicProfileIds);
+          final next = flashTogglePublic(current, profile.id, !isPublic);
+          await ref.read(Preferences.flashPublicProfileIds.notifier).update(next);
+        },
+      ),
+      // Flâsh fork only: Public export, visible only for Public profiles.
+      // User tap only: shares the subscription link (remote) or the
+      // profile name (local). No server publish, no bulk export.
+      if (isPublic)
+        AdaptiveMenuItem(
+          title: '🌍 Export Public',
+          leadingIcon: const Icon(Icons.share_rounded),
+          onTap: () async {
+            final text = switch (profile) {
+              RemoteProfileEntity(:final url, :final name) => LinkParser.generateSubShareLink(url, name),
+              _ => profile.name,
+            };
+            if (text.isEmpty) return;
+            try {
+              await Share.share(text);
+            } catch (_) {
+              await Clipboard.setData(ClipboardData(text: text));
+              if (context.mounted) {
+                ref.read(inAppNotificationControllerProvider).showSuccessToast(t.common.msg.export.clipboard.success);
+              }
+            }
+          },
+        ),
       if (profile case RemoteProfileEntity())
         AdaptiveMenuItem(
           title: t.common.update,
