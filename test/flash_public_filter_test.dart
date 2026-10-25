@@ -34,6 +34,29 @@ void main() {
     });
   });
 
+  group('toggle from current prefs state (v0.3 modal fix)', () {
+    // The menu must flip the CURRENT list, not a stale isPublic prop:
+    // tapping on an already-Public profile must unmark it, and tapping
+    // on a Private profile must mark it, in both directions.
+    bool menuMakePublic(List<String> current, String id) => !current.contains(id);
+
+    test('already-public tap unmarks', () {
+      final current = ['a', 'b'];
+      expect(flashTogglePublic(current, 'a', menuMakePublic(current, 'a')), ['b']);
+    });
+    test('private tap marks', () {
+      final current = ['b'];
+      expect(flashTogglePublic(current, 'a', menuMakePublic(current, 'a')), ['b', 'a']);
+    });
+    test('double tap returns to original', () {
+      var current = <String>[];
+      current = flashTogglePublic(current, 'a', menuMakePublic(current, 'a'));
+      expect(current, ['a']);
+      current = flashTogglePublic(current, 'a', menuMakePublic(current, 'a'));
+      expect(current, <String>[]);
+    });
+  });
+
   group('flashRemovePublicId', () {
     test('removes on delete', () {
       expect(flashRemovePublicId(['a', 'b'], 'a'), ['b']);

@@ -56,6 +56,18 @@ class ProfileTile extends HookConsumerWidget {
     final t = ref.watch(translationsProvider).requireValue;
     final theme = Theme.of(context);
 
+    // Flâsh fork only (v0.3): derive Public/Published from Preferences
+    // here, not from the call site. ProfilesModal and the Home main card
+    // used to create ProfileTile without isPublic/isPublished, so the
+    // menu always said "Mark as Public" and Publish never appeared in
+    // the sheet the user actually uses on mobile. Watching prefs here
+    // makes every call site correct; the constructor params are kept
+    // and OR-ed in so ProfilesPage's explicit values still work.
+    final flashPublicIds = ref.watch(Preferences.flashPublicProfileIds);
+    final flashPublishedIds = ref.watch(Preferences.flashPublishedProfileIds);
+    final effectiveIsPublic = isPublic || flashPublicIds.contains(profile.id);
+    final effectiveIsPublished = isPublished || flashPublishedIds.contains(profile.id);
+
     final selectActiveMutation = useMutation(
       initialOnFailure: (err) {
         ref.read(inAppNotificationControllerProvider).showErrorToast(t.presentShortError(err));
@@ -121,14 +133,16 @@ class ProfileTile extends HookConsumerWidget {
                       profile,
                       !isMain,
                       squareBottom: showLinks,
-                      isPublic: isPublic,
-                      isPublished: isPublished,
+                      isPublic: effectiveIsPublic,
+                      isPublished: effectiveIsPublished,
                     ),
                   ),
                 ),
                 if (profile.active) VerticalDivider(width: 1, color: theme.colorScheme.outline) else const Gap(1),
               ],
-              Expanded(child: _body(context, t, theme, subInfo, showActionButton, handleTap, showLinks)),
+              Expanded(
+                child: _body(context, t, theme, subInfo, showActionButton, handleTap, showLinks, effectiveIsPublic, effectiveIsPublished),
+              ),
             ],
           ),
         ),
@@ -159,6 +173,8 @@ class ProfileTile extends HookConsumerWidget {
     bool showActionButton,
     VoidCallback onTap,
     bool squareBottom,
+    bool effectiveIsPublic,
+    bool effectiveIsPublished,
   ) {
     return Semantics(
       button: true,
@@ -178,7 +194,7 @@ class ProfileTile extends HookConsumerWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _title(t, theme),
+              _title(t, theme, effectiveIsPublic, effectiveIsPublished),
               if (subInfo != null) ...[
                 const Gap(4),
                 RemainingTrafficIndicator(subInfo.ratio),
@@ -195,7 +211,7 @@ class ProfileTile extends HookConsumerWidget {
 
   /// Profile name with a trailing affordance: a dropdown on the main card, or a
   /// pin badge on list rows when the profile is pinned.
-  Widget _title(TranslationsEn t, ThemeData theme) {
+  Widget _title(TranslationsEn t, ThemeData theme, bool effectiveIsPublic, bool effectiveIsPublished) {
     final nameText = Text(
       profile.name,
       maxLines: 2,
@@ -213,13 +229,13 @@ class ProfileTile extends HookConsumerWidget {
         : null;
 
     // Flâsh fork only: a 🌍 chip on Public profiles, nothing extra on Private.
-    if (isPublic) {
+    if (effectiveIsPublic) {
       final row = Row(
         children: [
           Expanded(child: nameText),
           Padding(
             padding: const EdgeInsetsDirectional.only(start: 8),
-            child: Text(isPublished ? '🌍✓' : '🌍', semanticsLabel: isPublished ? 'Public, published' : 'Public'),
+            child: Text(effectiveIsPublished ? '🌍✓' : '🌍', semanticsLabel: effectiveIsPublished ? 'Public, published' : 'Public'),
           ),
           if (trailing != null) Padding(padding: const EdgeInsetsDirectional.only(start: 8), child: trailing),
         ],
@@ -269,6 +285,11 @@ class ProfileActionButton extends HookConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final t = ref.watch(translationsProvider).requireValue;
+    // Flâsh fork only (v0.3): same self-watching fix as ProfileTile —
+    // derive Public/Published from Preferences so the menu is correct
+    // even when a call site omits the params.
+    final effectiveIsPublic = isPublic || ref.watch(Preferences.flashPublicProfileIds).contains(profile.id);
+    final effectiveIsPublished = isPublished || ref.watch(Preferences.flashPublishedProfileIds).contains(profile.id);
     final update = ref.watch(updateProfileNotifierProvider(profile.id));
     final isUpdating = update.isLoading;
     // Success/failure flash is derived straight from the provider state, which
@@ -299,13 +320,13 @@ class ProfileActionButton extends HookConsumerWidget {
         alignment: Alignment.center,
         children: [...previousChildren, if (currentChild != null) currentChild],
       ),
-      child: _leading(context, ref, t, isUpdating, outcome),
+      child: _leading(context, ref, t, isUpdating, outcome, effectiveIsPublic, effectiveIsPublished),
     );
   }
 
   /// The current leading content. Each state carries a distinct key so the
   /// [AnimatedSwitcher] cross-fades between them.
-  Widget _leading(BuildContext context, WidgetRef ref, TranslationsEn t, bool isUpdating, bool? outcome) {
+  Widget _leading(BuildContext context, WidgetRef ref, TranslationsEn t, bool isUpdating, bool? outcome, bool effectiveIsPublic, bool effectiveIsPublished) {
     if (profile case RemoteProfileEntity()) {
       // While updating, the leading is a spinning indicator; its action is blocked.
       if (isUpdating) {
@@ -363,8 +384,8 @@ class ProfileActionButton extends HookConsumerWidget {
         );
       },
       key: const ValueKey('menu'),
-      isPublic: isPublic,
-      isPublished: isPublished,
+      isPublic: effectiveIsPublic,
+      isPublished: effectiveIsPublished,
     );
   }
 }
@@ -421,6 +442,14 @@ class ProfileActionsMenu extends HookConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final t = ref.watch(translationsProvider).requireValue;
 
+    // Flâsh fork only (v0.3): derive Public/Published from Preferences
+    // here too, so the menu is correct even when a call site passes the
+    // defaults. The toggle flips the CURRENT prefs state, never a stale
+    // prop: tapping "Mark as Public" on an already-Public profile used
+    // to be a no-op that just closed the menu.
+    final effectiveIsPublic = isPublic || ref.watch(Preferences.flashPublicProfileIds).contains(profile.id);
+    final effectiveIsPublished = isPublished || ref.watch(Preferences.flashPublishedProfileIds).contains(profile.id);
+
     final menuItems = [
       AdaptiveMenuItem(
         title: profile.pinned ? t.common.unpin : t.common.pin,
@@ -430,18 +459,19 @@ class ProfileActionsMenu extends HookConsumerWidget {
       // Flâsh fork only: Private/Public toggle. Explicit user tap only;
       // nothing here publishes to any server, and Private is the default.
       AdaptiveMenuItem(
-        title: isPublic ? '🔒 Mark as Private' : '🌍 Mark as Public',
-        leadingIcon: Icon(isPublic ? Icons.lock_outline_rounded : Icons.public_rounded),
+        title: effectiveIsPublic ? '🔒 Mark as Private' : '🌍 Mark as Public',
+        leadingIcon: Icon(effectiveIsPublic ? Icons.lock_outline_rounded : Icons.public_rounded),
         onTap: () async {
           final current = ref.read(Preferences.flashPublicProfileIds);
-          final next = flashTogglePublic(current, profile.id, !isPublic);
+          final makePublic = !current.contains(profile.id);
+          final next = flashTogglePublic(current, profile.id, makePublic);
           await ref.read(Preferences.flashPublicProfileIds.notifier).update(next);
         },
       ),
       // Flâsh fork only: Public export, visible only for Public profiles.
       // User tap only: shares the subscription link (remote) or the
       // profile name (local). No server publish, no bulk export.
-      if (isPublic)
+      if (effectiveIsPublic)
         AdaptiveMenuItem(
           title: '🌍 Export Public',
           leadingIcon: const Icon(Icons.share_rounded),
@@ -470,9 +500,9 @@ class ProfileActionsMenu extends HookConsumerWidget {
       // raw config. Nothing is invented: if no publishable link is found,
       // publishing is refused with a clear message. Server errors are
       // shown verbatim; success is never faked.
-      if (isPublic)
+      if (effectiveIsPublic)
         AdaptiveMenuItem(
-          title: isPublished ? '🌍 Publish to Pool ✓' : '🌍 Publish to Pool',
+          title: effectiveIsPublished ? '🌍 Publish to Pool ✓' : '🌍 Publish to Pool',
           leadingIcon: const Icon(Icons.public_rounded),
           onTap: () async {
             final notifications = ref.read(inAppNotificationControllerProvider);
